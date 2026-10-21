@@ -81,6 +81,6 @@ stage run --rm humhub sh -c "
   php yii settings/set base baseUrl $STAGE_HOST &&
   php yii module/remove fcm-push &&
   php yii module/update-all &&
-  php yii cache/flush"
+  php yii cache/flush-all"
 stage up -d --wait
 echo "staging is up on $STAGE_HOST"
