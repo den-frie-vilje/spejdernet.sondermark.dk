@@ -1,4 +1,4 @@
-# HumHub 1.18.3. Bump both Dockerfiles together; the branch decides the environment
+# HumHub 1.18.6. Bump both Dockerfiles together; the branch decides the environment
 # (staging builds from the staging branch, production from main).
 # The digest is the manifest-list digest Docker Hub shows for the tag.
-FROM docker.io/jeremyvies/humhub:1.18.3-phponly@sha256:09d1b0f40003a4f4de59dc4dc5dcbcf78801ec8b1aa9dca7ecabd257e2080bf0
+FROM docker.io/jeremyvies/humhub:1.18.6-phponly@sha256:a7a6bc1ecd6dcfe6ecab13b595e80ca34899d6dfd4fdd1efed820c7120fab935
