@@ -79,7 +79,7 @@ stage run --rm humhub sh -c "
   php yii settings/set base mailerPassword '' &&
   php yii settings/set base mailerEncryption '' &&
   php yii settings/set base baseUrl $STAGE_HOST &&
-  php yii module/remove fcm-push &&
+  ( [ ! -d /var/www/localhost/htdocs/protected/modules/fcm-push ] || php yii module/remove fcm-push ) &&
   php yii module/update-all &&
   php yii cache/flush-all"
 stage up -d --wait
