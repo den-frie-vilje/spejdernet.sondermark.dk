@@ -47,6 +47,11 @@ the data is frozen from the backup to the moment the new version answers.
 | `tools/refresh-staging.sh` | Copies production's data to staging and neutralises it |
 | `.github/workflows/deploy-<env>.yml` | Builds and signs that environment's images when the Dockerfiles change |
 
+The stacks mount the custom theme as a single folder, `humhub/themes/Sondermark`,
+not the whole `themes` folder: a whole-folder mount hides the stock theme that
+ships in the image, and HumHub 1.18 renames every custom theme folder it finds
+there on upgrade. The stock theme therefore always matches the core.
+
 The images are the upstream `jeremyvies/humhub` images re-tagged under
 `ghcr.io/den-frie-vilje/spejdernet-humhub` and `spejdernet-nginx`. The agent only
 deploys a stack that contains at least one image signed by nas-sites' own
