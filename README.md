@@ -43,6 +43,7 @@ the data is frozen from the backup to the moment the new version answers.
 | `deploy/<env>.env.example` | Template for the env file on the NAS |
 | `deploy/nas-sites/spejdernet.sondermark.dk.<env>.env` | The agent's config for that environment, on record |
 | `deploy/ladder.yml` | Override for running an intermediate version's migrations without deploying it |
+| `tools/copy-from-legacy.sh` | One-off copy of the site that runs today into the canonical layout |
 | `tools/refresh-staging.sh` | Copies production's data to staging and neutralises it |
 | `.github/workflows/deploy-<env>.yml` | Builds and signs that environment's images when the Dockerfiles change |
 
@@ -75,24 +76,19 @@ The site that runs today lives in `/volume1/docker/spejdernet_sondermark_dk` and
 serving until the very end. Nothing here touches it. The new layout is filled
 from a copy, and the production domain moves over when the copy is proven.
 
-1. Copy the data into production's directory, mapping the old layout onto the
-   new one. Nothing is started; the copy only exists on disk:
+1. Copy the data into production's canonical directory with
+   `tools/copy-from-legacy.sh`, which maps the old layout onto the new one.
+   Files are copied while the old site runs; the database directory only with
+   `--database`, after its container is stopped, since a running database
+   cannot be copied consistently. The copy only exists on disk; nothing is
+   started, and the old folders are never mounted by the new stacks:
 
    ```sh
-   P=/volume1/docker/spejdernet.sondermark.dk/production/data
-   sudo mkdir -p $P/humhub $P/db
-   sudo rsync -a /volume1/docker/spejdernet_sondermark_dk/humhub/uploads/ $P/humhub/uploads/
-   sudo rsync -a /volume1/docker/spejdernet_sondermark_dk/humhub/modules/ $P/humhub/modules/
-   sudo rsync -a /volume1/docker/spejdernet_sondermark_dk/humhub/themes/  $P/humhub/themes/
-   sudo rsync -a /volume1/docker/spejdernet_sondermark_dk/humhub/php-pages/ $P/humhub/php-pages/
-   sudo rsync -a /volume1/docker/spejdernet_sondermark_dk/humhub/config/  $P/humhub/config/
-   sudo mkdir -p $P/humhub/assets
-   sudo rsync -a /volume1/docker/spejdernet_sondermark_dk/db/data/ $P/db/data/
+   cd /volume1/docker/spejdernet.sondermark.dk/repo
+   sudo tools/copy-from-legacy.sh
+   sudo /usr/local/bin/docker stop spejdernet_sondermark_dk-db-1 && sudo tools/copy-from-legacy.sh --database && sudo /usr/local/bin/docker start spejdernet_sondermark_dk-db-1
    ```
 
-   `assets` is rebuilt by HumHub. The database directory is copied
-   at rest, so stop the old database container for the minutes it takes, or
-   accept that the copy is a rehearsal copy and redo it in the window.
 2. Refresh staging from that copy (`tools/refresh-staging.sh`), which copies
    the database files as they are when production is not running, and
    rehearse the upgrade there.
@@ -100,8 +96,8 @@ from a copy, and the production domain moves over when the copy is proven.
    same data send every digest and notification twice.
 
 The cutover is the service window below, with one extra step at the start:
-stop the old stack, and redo step 1 so the copy carries everything written
-since. From then on the old directory is the rollback, until it is deleted.
+stop the old stack, and rerun `tools/copy-from-legacy.sh --database` so the
+copy carries everything written since. From then on the old directory is the rollback, until it is deleted.
 
 ## Refreshing staging
 
