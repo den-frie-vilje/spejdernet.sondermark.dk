@@ -148,8 +148,10 @@ converted and migrated as above and parked behind the maintenance page.
 1. Rerun "Deploy to staging" and "Deploy to production" by hand (Actions,
    Run workflow) so `apk upgrade` takes the current Alpine packages; this is
    how a PHP fix reaches the image. Check it: `docker run --rm --entrypoint php ghcr.io/den-frie-vilje/spejdernet-humhub:production-latest -v`.
-2. Enable the agent: rename `/volume1/docker/nas-sites/sites.d/spejdernet.sondermark.dk.production.env.disabled`
-   back to `.env`.
+2. Give the agent its production file, the one on record in this repository:
+   ```sh
+   sudo cp deploy/nas-sites/spejdernet.sondermark.dk.production.env /volume1/docker/nas-sites/sites.d/ && sudo chmod 0640 /volume1/docker/nas-sites/sites.d/spejdernet.sondermark.dk.production.env && sudo chown root:docker /volume1/docker/nas-sites/sites.d/spejdernet.sondermark.dk.production.env
+   ```
 3. Run it: `sudo -u deploy /volume1/docker/nas-sites/deploy-agent.sh spejdernet.sondermark.dk production`.
    The first start dumps the database if the version changed, migrates, and
    starts nginx on `localhost:<HUMHUB_PORT>`.
