@@ -105,10 +105,11 @@ copy carries everything written since. From then on the old directory is the rol
 sudo /volume1/docker/spejdernet.sondermark.dk/repo/tools/refresh-staging.sh [intermediate phponly image ...]
 ```
 
-Production keeps running; its database is dumped in a single transaction and
-its files are copied with rsync. The copy is then migrated through any
-intermediate images given (see `deploy/ladder.yml`), neutralised, and
-started. The first refresh copies everything; later ones copy the delta.
+A running production is dumped in a single transaction and its files are
+copied with rsync; a production at rest has its database files copied. The
+copy is then migrated through any intermediate images given (see
+`deploy/ladder.yml`), with the marketplace modules updated to each core on
+the way, neutralised, and started. The first refresh copies everything; later ones copy the delta.
 
 ## Service window for production
 
