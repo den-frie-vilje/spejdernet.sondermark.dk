@@ -34,7 +34,10 @@ Every push of the Dockerfiles is checked before anything is built
 (`tools/check-version.sh`): both files at one version, the digests as Docker
 Hub serves them for that tag, the image's own version file matching, and no
 minor version skipped, which HumHub advises against. Dependabot opens patch
-bumps as one pull request for both files.
+bumps as one pull request for both files. A fix in the base image's
+packages, PHP included, needs no version bump: rerun the environment's
+deploy workflow by hand (Actions, Run workflow), the build's `apk upgrade`
+takes the current packages, and the agent pulls the new image.
 
 Rollback is the dump: see "Rollback" under the service window. Nothing
 shortens the window itself; the data is frozen from the dump to the moment
@@ -53,7 +56,6 @@ the new version answers.
 | `deploy/common.site.php` | The site's own PHP configuration, merged over the generated `common.php` |
 | `deploy/humhub.<env>.env` | HumHub's own `.env`: scalar configuration and pinned settings per environment |
 | `deploy/ladder.yml` | Override for running an intermediate version's migrations without deploying it |
-| `tools/copy-from-legacy.sh` | One-off copy of the site that runs today into the canonical layout |
 | `tools/refresh-staging.sh` | Copies production's data to staging and neutralises it |
 | `deploy/pre-start.sh` | The image's entrypoint: dumps the database before an upgrade migrates it |
 | `deploy/entrypoint.d/20-update-modules.sh` | Updates the marketplace modules once, after a core upgrade has migrated |
@@ -111,65 +113,6 @@ Three kinds of configuration, three places:
 To add a customisation, decide which of the three it is, change the file on
 `staging`, and promote it with the next staging to main pull request.
 
-## Onboarding from the existing stack
-
-The site that runs today lives in `/volume1/docker/spejdernet_sondermark_dk` and keeps
-serving until the very end. Nothing here touches it. The new layout is filled
-from a copy, and the production domain moves over when the copy is proven.
-
-1. Copy the data into production's canonical directory with
-   `tools/copy-from-legacy.sh`, which maps the old layout onto the new one.
-   Files are copied while the old site runs; the database directory only with
-   `--database`, after its container is stopped, since a running database
-   cannot be copied consistently. The copy only exists on disk; nothing is
-   started, and the old folders are never mounted by the new stacks:
-
-   ```sh
-   cd /volume1/docker/spejdernet.sondermark.dk/repo
-   sudo tools/copy-from-legacy.sh
-   sudo /usr/local/bin/docker stop spejdernet_sondermark_dk-db-1 && sudo tools/copy-from-legacy.sh --database && sudo /usr/local/bin/docker start spejdernet_sondermark_dk-db-1
-   ```
-
-2. Refresh staging from that copy (`tools/refresh-staging.sh`), which copies
-   the database files as they are when production is not running, and
-   rehearse the upgrade there.
-3. **Do not start the production stack before the window.** Two stacks on the
-   same data send every digest and notification twice.
-
-The cutover is the service window below, with one extra step at the start:
-stop the old stack, and rerun `tools/copy-from-legacy.sh --database` so the
-copy carries everything written since. From then on the old directory is the rollback, until it is deleted.
-
-## Go-live
-
-The one-off cutover from the old stack, after production has been copied,
-converted and migrated as above and parked behind the maintenance page.
-
-1. Rerun "Deploy to staging" and "Deploy to production" by hand (Actions,
-   Run workflow) so `apk upgrade` takes the current Alpine packages; this is
-   how a PHP fix reaches the image. Check it: `docker run --rm --entrypoint php ghcr.io/den-frie-vilje/spejdernet-humhub:production-latest -v`.
-2. Give the agent its production file, the one on record in this repository:
-   ```sh
-   sudo cp deploy/nas-sites/spejdernet.sondermark.dk.production.env /volume1/docker/nas-sites/sites.d/ && sudo chmod 0640 /volume1/docker/nas-sites/sites.d/spejdernet.sondermark.dk.production.env && sudo chown root:docker /volume1/docker/nas-sites/sites.d/spejdernet.sondermark.dk.production.env
-   ```
-3. Run it: `sudo -u deploy /volume1/docker/nas-sites/deploy-agent.sh spejdernet.sondermark.dk production`.
-   The first start dumps the database if the version changed, migrates, and
-   starts nginx on `localhost:<HUMHUB_PORT>`.
-4. Point the Web Station portal of `spejdernet.sondermark.dk` at that port instead of the
-   `maintenance` service.
-5. Log in, read Administration, Information.
-6. Stop and later delete the old stack; its directory is the rollback until then.
-7. Update the marketplace modules by hand (Administration, Modules, or
-   `php yii module/update-all` in the container): production's version did
-   not change at the cutover, so the hook that does it on upgrades does not run.
-8. Send a test mail from Administration, Settings, Mailing. The transport
-   is pinned in `deploy/humhub.production.env` to Google Workspace's SMTP
-   relay, which accepts the NAS's public address without a login (Workspace
-   admin console, Gmail, Routing, SMTP relay service). Once real mail has
-   gone through, drop `include:sendgrid.net` from sondermark.dk's SPF record
-   and the `s1._domainkey` and `s2._domainkey` CNAMEs in one.com's DNS, and
-   close the SendGrid account.
-
 ## Refreshing staging
 
 ```sh
@@ -192,20 +135,15 @@ updated to each core on the way.
    `.disabled` so the agent cannot start anything until you say so.
 2. Stop production: `docker compose -p spejdernet-sondermark-dk-production down`
    (from `/volume1/docker/spejdernet.sondermark.dk/repo` with the compose file and env file, as
-   the agent runs it). At the first cutover this is the old stack instead,
-   followed by the final copy from "Onboarding from the existing stack".
+   the agent runs it).
 3. Copy `humhub/config` under the data directory to a sibling directory.
    The database needs no copy: the image dumps it into
    `humhub/config/backups` before it migrates.
 4. If staging needed a ladder, run the same images against production with
    `deploy/ladder.yml` now, one after the other.
-5. Start the database alone and run the collation fix (below), before any
-   HumHub container migrates.
-6. Merge `staging` into `main`, wait for the build, rename the `sites.d` file
+5. Merge `staging` into `main`, wait for the build, rename the `sites.d` file
    back, and run the agent: `sudo -u deploy /volume1/docker/nas-sites/deploy-agent.sh spejdernet.sondermark.dk production`.
-7. Log in, read Administration, Information, update the marketplace modules.
-8. At the first cutover: point the DSM reverse-proxy vhost of the production
-   domain at `localhost:<HUMHUB_PORT>` of the new stack.
+6. Log in, read Administration, Information, update the marketplace modules.
 
 ### Rollback
 
@@ -227,20 +165,12 @@ sudo -u deploy /volume1/docker/nas-sites/deploy-agent.sh spejdernet.sondermark.d
 
 ### Collation fix
 
-The database was created with MariaDB's old default collation, and tables
-created by modules inherited it; HumHub migrations create new tables with the
-database default, so the conversion has to happen before HumHub migrates.
-`tools/fix-collation.sh` converts the database default and every remaining
-table to utf8mb4_unicode_ci and refuses to succeed while any table is left.
-The staging refresh runs it as soon as the copied database is up. In the
-production window, start the database alone, run it, then let the agent
-start the stack:
-
-```sh
-cd /volume1/docker/spejdernet.sondermark.dk/repo
-sudo docker compose -p spejdernet-sondermark-dk-production -f deploy/compose.production.yml --env-file /volume1/docker/spejdernet.sondermark.dk/production/production.env up -d --wait db
-sudo tools/fix-collation.sh production
-```
+HumHub migrations create new tables with the database default, so the
+database default and every table are utf8mb4_unicode_ci, the collation HumHub
+recommends. `tools/fix-collation.sh` converts whatever is left and refuses to
+succeed while any table remains; the staging refresh runs it as soon as the
+copied database is up, so a table that slipped in with another collation is
+caught on staging, before the production deploy migrates it.
 
 ## Mail
 
