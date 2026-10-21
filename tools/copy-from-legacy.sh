@@ -18,13 +18,15 @@ NEW=$(grep -E '^DATA_DIR=' /volume1/docker/spejdernet.sondermark.dk/production/p
 [ -n "$NEW" ] || { echo "DATA_DIR missing in production.env" >&2; exit 1; }
 case "$NEW" in /volume1/docker/spejdernet.sondermark.dk/production/data) ;; *) echo "refusing: DATA_DIR is not the canonical path ($NEW)" >&2; exit 1;; esac
 
+# DSM keeps thumbnail folders (@eaDir) beside indexed photos; they are not
+# site data and are several times its size, so every copy leaves them out.
 mkdir -p "$NEW/humhub" "$NEW/db"
 echo "files: $OLD -> $NEW/humhub"
-rsync -a --delete "$OLD/uploads/"      "$NEW/humhub/uploads/"
-rsync -a --delete "$OLD/modules/"  "$NEW/humhub/modules/"
-rsync -a --delete "$OLD/themes/"   "$NEW/humhub/themes/"
-rsync -a --delete "$OLD/config/"   "$NEW/humhub/config/"
-rsync -a --delete "$OLD/php-pages/" "$NEW/humhub/php-pages/"
+rsync -a --delete --exclude=@eaDir --exclude="#recycle" "$OLD/uploads/"      "$NEW/humhub/uploads/"
+rsync -a --delete --exclude=@eaDir --exclude="#recycle" "$OLD/modules/"  "$NEW/humhub/modules/"
+rsync -a --delete --exclude=@eaDir --exclude="#recycle" "$OLD/themes/"   "$NEW/humhub/themes/"
+rsync -a --delete --exclude=@eaDir --exclude="#recycle" "$OLD/config/"   "$NEW/humhub/config/"
+rsync -a --delete --exclude=@eaDir --exclude="#recycle" "$OLD/php-pages/" "$NEW/humhub/php-pages/"
 mkdir -p "$NEW/humhub/assets" "$NEW/humhub/php-pages"
 
 if [ "${1:-}" = "--database" ]; then
@@ -33,6 +35,6 @@ if [ "${1:-}" = "--database" ]; then
   fi
   echo "database: $OLD_DB -> $NEW/db/data"
   mkdir -p "$NEW/db/data"
-  rsync -a --delete "$OLD_DB/" "$NEW/db/data/"
+  rsync -a --delete --exclude=@eaDir --exclude="#recycle" "$OLD_DB/" "$NEW/db/data/"
 fi
 du -sh "$NEW"
