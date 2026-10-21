@@ -20,7 +20,10 @@ services:
       - "${DATA_DIR}/humhub/uploads:/var/www/localhost/htdocs/uploads"
       - "${DATA_DIR}/humhub/assets:/var/www/localhost/htdocs/assets"
       - "${DATA_DIR}/humhub/modules:/var/www/localhost/htdocs/protected/modules"
-      - "${DATA_DIR}/humhub/themes:/var/www/localhost/htdocs/themes"
+      # Only the custom theme is mounted. Mounting the whole themes folder
+      # would hide the stock theme that ships in the image, and HumHub 1.18
+      # renames every custom theme folder it finds there on upgrade.
+      - "${DATA_DIR}/humhub/themes/Sondermark:/var/www/localhost/htdocs/themes/Sondermark"
     depends_on:
       - humhub
     healthcheck:
@@ -58,7 +61,10 @@ services:
       - "${DATA_DIR}/humhub/uploads:/var/www/localhost/htdocs/uploads"
       - "${DATA_DIR}/humhub/assets:/var/www/localhost/htdocs/assets"
       - "${DATA_DIR}/humhub/modules:/var/www/localhost/htdocs/protected/modules"
-      - "${DATA_DIR}/humhub/themes:/var/www/localhost/htdocs/themes"
+      # Only the custom theme is mounted. Mounting the whole themes folder
+      # would hide the stock theme that ships in the image, and HumHub 1.18
+      # renames every custom theme folder it finds there on upgrade.
+      - "${DATA_DIR}/humhub/themes/Sondermark:/var/www/localhost/htdocs/themes/Sondermark"
       - "${DATA_DIR}/humhub/config:/var/www/localhost/htdocs/protected/config"
       - "${DATA_DIR}/humhub/php-pages:/var/www/localhost/htdocs/php-pages"
     depends_on:
