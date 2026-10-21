@@ -140,6 +140,31 @@ The cutover is the service window below, with one extra step at the start:
 stop the old stack, and rerun `tools/copy-from-legacy.sh --database` so the
 copy carries everything written since. From then on the old directory is the rollback, until it is deleted.
 
+## Go-live
+
+The one-off cutover from the old stack, after production has been copied,
+converted and migrated as above and parked behind the maintenance page.
+
+1. Rerun "Deploy to staging" and "Deploy to production" by hand (Actions,
+   Run workflow) so `apk upgrade` takes the current Alpine packages; this is
+   how a PHP fix reaches the image. Check it: `docker run --rm --entrypoint php ghcr.io/den-frie-vilje/spejdernet-humhub:production-latest -v`.
+2. Enable the agent: rename `/volume1/docker/nas-sites/sites.d/spejdernet.sondermark.dk.production.env.disabled`
+   back to `.env`.
+3. Run it: `sudo -u deploy /volume1/docker/nas-sites/deploy-agent.sh spejdernet.sondermark.dk production`.
+   The first start dumps the database if the version changed, migrates, and
+   starts nginx on `localhost:<HUMHUB_PORT>`.
+4. Point the Web Station portal of `spejdernet.sondermark.dk` at that port instead of the
+   `maintenance` service.
+5. Log in, read Administration, Information.
+6. Stop and later delete the old stack; its directory is the rollback until then.
+7. Update the marketplace modules by hand (Administration, Modules, or
+   `php yii module/update-all` in the container): production's version did
+   not change at the cutover, so the hook that does it on upgrades does not run.
+8. Move the mail transport from SendGrid to one.com (Administration, Settings,
+   Mailing: `send.one.com`, port 465, SSL, a sondermark.dk mailbox) and send
+   a test mail. Afterwards drop `include:sendgrid.net` from sondermark.dk's
+   SPF record and the `s1._domainkey` and `s2._domainkey` CNAMEs.
+
 ## Refreshing staging
 
 ```sh
