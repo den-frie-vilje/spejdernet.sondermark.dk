@@ -162,10 +162,13 @@ converted and migrated as above and parked behind the maintenance page.
 7. Update the marketplace modules by hand (Administration, Modules, or
    `php yii module/update-all` in the container): production's version did
    not change at the cutover, so the hook that does it on upgrades does not run.
-8. Move the mail transport from SendGrid to one.com (Administration, Settings,
-   Mailing: `send.one.com`, port 465, SSL, a sondermark.dk mailbox) and send
-   a test mail. Afterwards drop `include:sendgrid.net` from sondermark.dk's
-   SPF record and the `s1._domainkey` and `s2._domainkey` CNAMEs.
+8. Send a test mail from Administration, Settings, Mailing. The transport
+   is pinned in `deploy/humhub.production.env` to Google Workspace's SMTP
+   relay, which accepts the NAS's public address without a login (Workspace
+   admin console, Gmail, Routing, SMTP relay service). Once real mail has
+   gone through, drop `include:sendgrid.net` from sondermark.dk's SPF record
+   and the `s1._domainkey` and `s2._domainkey` CNAMEs in one.com's DNS, and
+   close the SendGrid account.
 
 ## Refreshing staging
 
@@ -241,6 +244,8 @@ sudo tools/fix-collation.sh production
 
 ## Mail
 
-The mail transport is a HumHub setting stored in the database (Administration,
-Settings, Mailing), not something in this repository. Production's setting
-survives upgrades with the data; staging's is overwritten by every refresh.
+Both environments pin the mail transport in `deploy/humhub.<env>.env`:
+production to Google Workspace's SMTP relay for sondermark.dk, staging to the
+mail catcher. A pinned setting wins over the setting table and is locked in
+Administration, Settings, Mailing; the sender address and name stay in the
+database with the data.
