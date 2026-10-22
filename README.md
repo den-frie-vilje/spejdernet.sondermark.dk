@@ -175,7 +175,8 @@ caught on staging, before the production deploy migrates it.
 ## Mail
 
 Both environments pin the mail transport in `deploy/humhub.<env>.env`:
-production to Google Workspace's SMTP relay for sondermark.dk, staging to the
-mail catcher. A pinned setting wins over the setting table and is locked in
+production to Google Workspace's SMTP relay for sondermark.dk as a DSN with
+the site's hostname as the EHLO name (the relay refuses HumHub's default
+greeting), staging to the mail catcher. A pinned setting wins over the setting table and is locked in
 Administration, Settings, Mailing; the sender address and name stay in the
 database with the data.
