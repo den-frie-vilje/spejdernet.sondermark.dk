@@ -1,7 +1,7 @@
 # HumHub 1.18.6. Bump both Dockerfiles together; the branch decides the environment
 # (staging builds from the staging branch, production from main).
 # The digest is the manifest-list digest Docker Hub shows for the tag.
-FROM docker.io/jeremyvies/humhub:1.18.6-phponly@sha256:a7a6bc1ecd6dcfe6ecab13b595e80ca34899d6dfd4fdd1efed820c7120fab935
+FROM docker.io/jeremyvies/humhub:1.18.6-phponly@sha256:5f73e0df3f6b8be7238017e66afe7a086f5ccd5a3bb3d574b3db73738ff0ddaa
 # Alpine security updates at build time, so a PHP or nginx fix ships as soon as
 # Alpine has it, without waiting for the upstream image to be rebuilt. Re-run
 # the workflow by hand (workflow_dispatch) to pick up a new fix.
