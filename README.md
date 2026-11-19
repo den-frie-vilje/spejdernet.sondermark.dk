@@ -31,8 +31,8 @@ builds `production-latest`. An upgrade is:
    (`deploy/entrypoint.d/20-update-modules.sh`).
 
 Every push of the Dockerfiles is checked before anything is built
-(`tools/check-version.sh`): both files at one version, the digests as Docker
-Hub serves them for that tag, the image's own version file matching, and no
+(`tools/check-version.sh`): both files at one version, the digests as GHCR
+serves them for that tag, the image's own version file matching, and no
 minor version skipped, which HumHub advises against. Dependabot opens patch
 bumps as one pull request for both files. A fix in the base image's
 packages, PHP included, needs no version bump: rerun the environment's
@@ -69,11 +69,17 @@ not the whole `themes` folder: a whole-folder mount hides the stock theme that
 ships in the image, and HumHub 1.18 renames every custom theme folder it finds
 there on upgrade. The stock theme therefore always matches the core.
 
-The images are the upstream `jeremyvies/humhub` images re-tagged under
-`ghcr.io/den-frie-vilje/spejdernet-humhub` and `spejdernet-nginx`. The agent only
-deploys a stack that contains at least one image signed by nas-sites' own
-workflow, which is what the re-tag provides. After the first build, make both
-GHCR packages public, or the NAS cannot pull them.
+The base images, `ghcr.io/den-frie-vilje/humhub-phponly` and `humhub-nginx`,
+are built by the organisation's fork of humhub-docker
+([den-frie-vilje/humhub-docker](https://github.com/den-frie-vilje/humhub-docker)):
+its `versions.txt` names the HumHub version and its Build workflow publishes
+both on every push to main. The upstream `jeremyvies/humhub` images stopped at
+1.19.0. The site images add the Alpine upgrade, the ImageMagick coders and
+`pre-start.sh` on top and are published as `spejdernet-humhub` and
+`spejdernet-nginx`. The agent only deploys a stack that contains at least one
+image signed by nas-sites' own workflow, which is what the site build provides.
+After the first build, make both GHCR packages public, or the NAS cannot pull
+them.
 
 ## One-time setup on the NAS
 
