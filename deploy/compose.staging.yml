@@ -97,7 +97,13 @@ services:
     volumes:
       - "${DATA_DIR}/db/data:/var/lib/mysql"
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "--silent"]
+      # The image's own script: `mysqladmin ping` answers alive on the
+      # temporary server the entrypoint runs while it still creates the users
+      # (exit 0 even on access denied), so a restore could start before root
+      # had its password (2026-11-20). --connect uses the healthcheck user the
+      # entrypoint creates, on an existing data directory under
+      # MARIADB_AUTO_UPGRADE; --innodb_initialized passes only on the real server.
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 30s
       timeout: 10s
       retries: 3
