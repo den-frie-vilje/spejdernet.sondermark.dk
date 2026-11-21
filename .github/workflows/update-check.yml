@@ -48,7 +48,7 @@ jobs:
           git diff --cached --quiet && { echo "nothing new today"; exit 0; }
           VERSION=$(sed -nE 's|^FROM ghcr.io/den-frie-vilje/humhub-phponly:([0-9.]+)@.*|\1|p' deploy/Dockerfile.humhub)
           TITLE="Updates the module test passed with: HumHub $VERSION, modules as listed"
-          BRANCH=update/$(date -u +%Y-%m-%d)
+          BRANCH=update/$(date -u +%Y-%m-%d)-$GITHUB_RUN_ID
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git checkout -b "$BRANCH"
