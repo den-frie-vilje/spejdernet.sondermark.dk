@@ -35,9 +35,13 @@ compose up -d --build --wait --wait-timeout 900
 
 echo "2/4 installing and enabling the modules in deploy/modules.txt"
 MODULES=$(grep -vE '^[[:space:]]*(#|$)' deploy/modules.txt)
+# Each console process caches the module list; the next module's dependency
+# check (ModuleDependencyService::getUnmetDependencies) must see this one
+# enabled, so the cache is flushed in between.
 for m in $MODULES; do
   yii module/install "$m"
   yii module/enable "$m"
+  yii cache/flush-all > /dev/null
 done
 LIST=$(yii module/list)
 echo "$LIST"
