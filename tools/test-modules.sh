@@ -152,10 +152,14 @@ return ['components' => ['db' => ['dsn' => 'mysql:host=db;dbname=humhub_test', '
 PHP
 harness() { compose exec -T -u nginx -w /var/www/localhost/htdocs/protected/humhub/tests/codeception/bin humhub php yii "$@"; }
 fresh_test_database() {
+  # The harness caches settings and the installation state in a file cache
+  # (tests/config/common.php, @runtime/tests/cache); a console booting on an
+  # empty database with the previous module's cache believes it installed and
+  # fails, so the cache goes first, without booting anything.
+  compose exec -T humhub rm -rf /var/www/localhost/htdocs/protected/runtime/tests/cache
   compose exec -T db mariadb -uroot -proot -e 'DROP DATABASE IF EXISTS humhub_test; CREATE DATABASE humhub_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
   harness migrate/up --includeModuleMigrations=1 --interactive=0 > /dev/null
   harness installer/auto > /dev/null
-  harness cache/flush-all > /dev/null
 }
 compose exec -T -u nginx -w /var/www/localhost/htdocs/protected/humhub/tests humhub php ../../vendor/bin/codecept build --no-interaction | tail -1
 FAILED=""
