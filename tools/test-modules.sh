@@ -1,11 +1,12 @@
 #!/bin/sh
 # Proves that the HumHub image built from this repository still carries the
 # community's marketplace modules: brings deploy/compose.test.yml up on an
-# empty database, installs and enables every module in deploy/modules.txt,
-# then signs in as the test administrator and renders the pages the modules
-# take part in. Runs on a pull request (.github/workflows/test-modules.yml)
-# and anywhere with Docker: tools/test-modules.sh. Exit 0 is a pass; the
-# stack is removed either way, and a failure prints the container log first.
+# empty database, signs in as the test administrator, installs and enables
+# every module in deploy/modules.txt through the marketplace the way an
+# administrator does, then renders the pages the modules take part in. Runs
+# on a pull request (.github/workflows/test-modules.yml) and anywhere with
+# Docker: tools/test-modules.sh. Exit 0 is a pass; the stack is removed either
+# way, and a failure prints the container log first.
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -20,6 +21,8 @@ BODY=$(mktemp)
 finish() {
   status=$?
   if [ "$status" -ne 0 ]; then
+    echo "--- response body"
+    sed -e 's/<[^>]*>//g' "$BODY" | grep -v '^[[:space:]]*$' | head -40
     echo "--- humhub container log, last 100 lines"
     compose logs --no-color --tail 100 humhub || true
   fi
@@ -30,18 +33,38 @@ finish() {
 trap finish EXIT
 fail() { echo "FAIL: $*"; exit 1; }
 
+# Prints the status code; the body lands in $BODY.
+page() { curl -sS -o "$BODY" --max-time 120 -b "$JAR" -c "$JAR" -w '%{http_code}' "$@"; }
+# The CSRF token of the page in $BODY; Yii issues a new one at sign-in.
+token() { grep -oE 'name="csrf-token" content="[^"]+"' "$BODY" | cut -d'"' -f4; }
+
 echo "1/4 building the images and installing HumHub on an empty database"
 compose up -d --build --wait --wait-timeout 900
 
-echo "2/4 installing and enabling the modules in deploy/modules.txt"
+echo "2/4 signing in as the test administrator"
+# Sign-in is two steps since 1.19: the username, then the password
+# (humhub/modules/user/controllers/AuthController.php, actionLogin and actionPassword).
+page "$URL/user/auth/login" > /dev/null
+code=$(page "$URL/user/auth/login" --data-urlencode "_csrf=$(token)" --data-urlencode 'Login[username]=admin')
+[ "$code" = 302 ] || fail "the username step answered $code"
+page "$URL/user/auth/password" > /dev/null
+code=$(page "$URL/user/auth/password" --data-urlencode "_csrf=$(token)" --data-urlencode 'Login[password]=test-modules')
+[ "$code" = 302 ] || fail "the password step answered $code"
+code=$(page "$URL/dashboard")
+[ "$code" = 200 ] || fail "the dashboard answered $code after sign-in"
+CSRF=$(token)
+
+echo "3/4 installing and enabling the modules in deploy/modules.txt"
+# Through the marketplace pages rather than the console: the console
+# installer runs without third-party modules loaded, and a module whose
+# requirements.php looks one up (external_calendar needs calendar) fails there.
 MODULES=$(grep -vE '^[[:space:]]*(#|$)' deploy/modules.txt)
-# Each console process caches the module list; the next module's dependency
-# check (ModuleDependencyService::getUnmetDependencies) must see this one
-# enabled, so the cache is flushed in between.
 for m in $MODULES; do
-  yii module/install "$m"
-  yii module/enable "$m"
-  yii cache/flush-all > /dev/null
+  for action in install enable; do
+    code=$(page "$URL/marketplace/browse/$action" --data-urlencode "_csrf=$CSRF" --data-urlencode "moduleId=$m")
+    [ "$code" = 200 ] || fail "$action of $m answered $code"
+  done
+  echo "  $m installed and enabled"
 done
 LIST=$(yii module/list)
 echo "$LIST"
@@ -53,17 +76,7 @@ done
 yii module/update-all
 yii integrity/run
 
-echo "3/4 signing in as the test administrator and rendering the pages"
-# Prints the status code; the body lands in $BODY.
-page() { curl -sS -o "$BODY" --max-time 60 -b "$JAR" -c "$JAR" -w '%{http_code}' "$@"; }
-page "$URL/user/auth/login" > /dev/null
-TOKEN=$(grep -oE 'name="csrf-token" content="[^"]+"' "$BODY" | cut -d'"' -f4)
-PARAM=$(grep -oE 'name="csrf-param" content="[^"]+"' "$BODY" | cut -d'"' -f4)
-[ -n "$TOKEN" ] && [ -n "$PARAM" ] || fail "no CSRF token on the sign-in page"
-code=$(page "$URL/user/auth/login" --data-urlencode "$PARAM=$TOKEN" \
-  --data-urlencode 'Login[username]=admin' --data-urlencode 'Login[password]=test-modules')
-[ "$code" = 302 ] || fail "sign-in answered $code"
-
+echo "4/4 rendering the pages and reading the application log"
 # A page passes with 200 and no error page in the body. A module without a
 # page of its own answers 404 to every candidate path; that is reported, not
 # failed, since the module's widgets are rendered by the pages below.
@@ -75,11 +88,10 @@ render() {
     *) fail "$1 answered $code" ;;
   esac
 }
-for p in /dashboard /directory/members /admin/module; do
+for p in /dashboard /directory/members /admin/module/list; do
   render "$p" || fail "$p answered 404"
 done
-# /admin/module is the module manager; it names every installed module.
-page "$URL/admin/module" > /dev/null
+# /admin/module/list is the module manager; it names every installed module.
 for m in $MODULES; do
   grep -q "moduleId=$m\b" "$BODY" || fail "the module manager does not list $m"
 done
@@ -88,8 +100,6 @@ for m in $MODULES; do
     render "$p" && break
   done || echo "  none $m has no page of its own"
 done
-
-echo "4/4 reading the application log"
 ERRORS=$(compose exec -T humhub sh -c 'cat protected/runtime/logs/app.log 2>/dev/null' | grep -E '\[error\]' || true)
 [ -z "$ERRORS" ] || { echo "$ERRORS"; fail "errors in protected/runtime/logs/app.log"; }
 
