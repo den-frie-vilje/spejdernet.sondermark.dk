@@ -58,9 +58,12 @@ test.
 Every day `.github/workflows/update-check.yml` moves the Dockerfiles to the
 newest HumHub the image fork has built (`tools/bump-humhub.sh`), runs the same
 test against it and the module releases the marketplace serves, and only when
-it passes and something is new commits to `staging`, builds the staging
-images and opens or refreshes the pull request to `main`, with the table in
-its description and the owner as reviewer. Staging then runs the new core or
+every module passes and something is new brings the tree to `staging` through
+a pull request, builds the staging images and opens or refreshes the pull
+request to `main`, with the table in its description and the owner as
+reviewer. `staging` takes pull requests only, each with a passing `test`
+status (the repository ruleset), so a failing test cannot reach it by any
+route. Staging then runs the new core or
 modules within minutes (the image carries `deploy/modules.txt`, and
 `deploy/entrypoint.d/20-update-modules.sh` updates the modules when it
 changes); the review on staging is by hand, and the merge builds production.
@@ -86,7 +89,7 @@ the new version answers.
 | `deploy/ladder.yml` | Override for running an intermediate version's migrations without deploying it |
 | `tools/refresh-staging.sh` | Copies production's data to staging and neutralises it |
 | `deploy/pre-start.sh` | The image's entrypoint: dumps the database before an upgrade migrates it |
-| `deploy/entrypoint.d/20-update-modules.sh` | Updates the marketplace modules once, after a core upgrade has migrated |
+| `deploy/entrypoint.d/20-update-modules.sh` | Installs the modules the image's list names and updates them all, after a core upgrade has migrated and when the list changes |
 | `tools/check-version.sh` | The version-bump check the workflows run before building |
 | `tools/test-modules.sh` | Installs the modules in `deploy/modules.txt` on a fresh HumHub built from the pull request, renders their pages and runs their unit and functional suites |
 | `tools/bump-humhub.sh` | Moves the Dockerfiles to the newest HumHub the image fork has built |

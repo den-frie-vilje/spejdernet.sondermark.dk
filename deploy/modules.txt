@@ -27,7 +27,7 @@ meeting
 mostactiveusers
 newmembers
 online-users
-onlyoffice
+euro-office
 polls
 questions
 rest

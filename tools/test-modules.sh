@@ -167,8 +167,8 @@ suite() {
   case "$out" in
     *"No tests executed"*|*"could not be found"*) echo "none"; return ;;
   esac
-  tests=$(echo "$out" | grep -oE '(OK \(|Tests: )[0-9]+' | tail -1 | grep -oE '[0-9]+$')
-  bad=$(( $(echo "$out" | grep -oE '(Failures|Errors): [0-9]+' | grep -oE '[0-9]+' | paste -sd+ - | sed -e 's/^$/0/') ))
+  tests=$(echo "$out" | grep -oE '(OK \(|Tests: )[0-9]+' | tail -1 | grep -oE '[0-9]+$' || true)
+  bad=$(( $(echo "$out" | grep -oE '(Failures|Errors): [0-9]+' | grep -oE '[0-9]+' | paste -sd+ - | sed -e 's/^$/0/' || true) ))
   [ -n "$tests" ] || { echo "$out" | tail -40 >&2; echo "FAIL, did not run"; return; }
   if [ "$bad" -gt 0 ]; then
     echo "$out" | grep -vE '^\s*#[0-9]+ ' | grep -A6 -E '^[0-9]+\) ' >&2
@@ -179,7 +179,9 @@ suite() {
 }
 for m in $INSTALLED; do
   if compose exec -T humhub test -f "/var/www/localhost/htdocs/protected/modules/$m/tests/codeception.yml"; then
-    harness module/enable "$m" | tail -1
+    # The module is enabled through the console as HumHub's own module/install
+    # would; a module that breaks there shows it in its suites.
+    harness module/enable "$m" 2>&1 | tail -3
     u=$(suite "$m" unit); f=$(suite "$m" functional)
     echo "  $m unit: $u; functional: $f"
     case "$u$f" in *FAIL*) FAILED="$FAILED $m" ;; esac
