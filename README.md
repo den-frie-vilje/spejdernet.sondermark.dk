@@ -39,8 +39,8 @@ packages, PHP included, needs no version bump: rerun the environment's
 deploy workflow by hand (Actions, Run workflow), the build's `apk upgrade`
 takes the current packages, and the agent pulls the new image.
 
-A pull request that touches `deploy/` also runs `tools/test-modules.sh`: the
-two images are built from the pull request, HumHub is installed on an empty
+Every pull request to `staging` runs `tools/test-modules.sh`: the two images
+are built from the pull request, HumHub is installed on an empty
 database (`deploy/compose.test.yml`), the test administrator signs in and
 installs and enables every module in `deploy/modules.txt` through the
 marketplace, the marketplace update check and the integrity check run, and
@@ -53,7 +53,9 @@ reported, not installed. The job summary is a table of how every module
 fared. `deploy/modules.txt` is production's module folder with the version
 each module last passed at: a module installed or removed in the admin
 interface is added or removed there too, and the versions are written by the
-test.
+test. What the entrypoint installs is the marketplace's current release for
+the core at that start, which is the tested version unless the module was
+released again since; the next daily run tests that release.
 
 Every day `.github/workflows/update-check.yml` moves the Dockerfiles to the
 newest HumHub the image fork has built (`tools/bump-humhub.sh`), runs the same
@@ -68,7 +70,9 @@ modules within minutes (the image carries `deploy/modules.txt`, and
 `deploy/entrypoint.d/20-update-modules.sh` updates the modules when it
 changes); the review on staging is by hand, and the merge builds production.
 A failing test fails the daily run, which GitHub reports, and nothing moves
-until a release passes.
+until a release passes. GitHub runs schedules from the default branch, so the
+daily check fires once the workflow is on `main`; it checks out `staging`
+either way.
 
 Rollback is the dump: see "Rollback" under the service window. Nothing
 shortens the window itself; the data is frozen from the dump to the moment

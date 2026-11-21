@@ -150,7 +150,11 @@ compose exec -T humhub sh -c 'cat > /var/www/localhost/htdocs/protected/humhub/t
 <?php
 return ['components' => ['db' => ['dsn' => 'mysql:host=db;dbname=humhub_test', 'username' => 'root', 'password' => 'root']]];
 PHP
-harness() { compose exec -T -u nginx -w /var/www/localhost/htdocs/protected/humhub/tests/codeception/bin humhub php yii "$@"; }
+# The harness console runs under YII_ENV test, where Yii exits 0 on an
+# unhandled exception (yii\base\ErrorHandler::$silentExitOnException), so
+# each call is judged by its output, not its exit code.
+harness() { compose exec -T -u nginx -w /var/www/localhost/htdocs/protected/humhub/tests/codeception/bin humhub php yii "$@" 2>&1; }
+expect() { out=$(cat); echo "$out" | grep -qE "$1" || { echo "$out" | tail -20; fail "the test harness did not $2"; }; }
 fresh_test_database() {
   # The harness caches settings and the installation state in a file cache
   # (tests/config/common.php, @runtime/tests/cache); a console booting on an
@@ -158,10 +162,10 @@ fresh_test_database() {
   # fails, so the cache goes first, without booting anything.
   compose exec -T humhub rm -rf /var/www/localhost/htdocs/protected/runtime/tests/cache
   compose exec -T db mariadb -uroot -proot -e 'DROP DATABASE IF EXISTS humhub_test; CREATE DATABASE humhub_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
-  harness migrate/up --includeModuleMigrations=1 --interactive=0 > /dev/null
-  harness installer/auto > /dev/null
+  harness migrate/up --includeModuleMigrations=1 --interactive=0 | expect 'Migrated up successfully|No new migrations found' 'migrate the fresh test database'
+  harness installer/auto | expect '^Install Site:' 'install the fresh test database'
 }
-compose exec -T -u nginx -w /var/www/localhost/htdocs/protected/humhub/tests humhub php ../../vendor/bin/codecept build --no-interaction | tail -1
+compose exec -T -u nginx -w /var/www/localhost/htdocs/protected/humhub/tests humhub php ../../vendor/bin/codecept build --no-interaction 2>&1 | expect 'UnitTesterActions.php generated successfully' 'build its actor classes'
 FAILED=""
 # Runs one suite and prints its cell for the table.
 suite() {
@@ -181,11 +185,22 @@ suite() {
 }
 for m in $INSTALLED; do
   if compose exec -T humhub test -f "/var/www/localhost/htdocs/protected/modules/$m/tests/codeception.yml"; then
-    # The module is enabled through the console as HumHub's own module/install
-    # would; a module that breaks there shows it in its suites.
     fresh_test_database
-    harness module/enable "$m" 2>&1 | tail -3
-    f=$(suite "$m" functional); u=$(suite "$m" unit)
+    # A module with its own composer.json gets its packages, as the upstream
+    # workflow's "Install module dependencies" step does.
+    if compose exec -T humhub test -f "/var/www/localhost/htdocs/protected/modules/$m/composer.json"; then
+      compose exec -T -u nginx -w "/var/www/localhost/htdocs/protected/modules/$m" humhub composer install --no-interaction --no-progress --quiet
+    fi
+    # The module is enabled through the console as HumHub's own module/install
+    # would; a module that breaks there is reported, since its suites would
+    # only fail on the missing tables.
+    ENABLE=$(harness module/enable "$m")
+    if echo "$ENABLE" | grep -q "Module $m enabled"; then
+      f=$(suite "$m" functional); u=$(suite "$m" unit)
+    else
+      echo "$ENABLE" | grep -vE '^\s*#[0-9]+ ' | head -8 >&2
+      f="FAIL, console enable failed"; u="FAIL, console enable failed"
+    fi
     echo "  $m unit: $u; functional: $f"
     case "$u$f" in *FAIL*) FAILED="$FAILED $m" ;; esac
     row "$m" "$(version "$m")" yes "$u" "$f"
