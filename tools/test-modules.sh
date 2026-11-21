@@ -102,7 +102,7 @@ render() {
     *) fail "$1 answered $code" ;;
   esac
 }
-for p in /dashboard /directory/members /admin/module/list; do
+for p in /dashboard /people /spaces /admin/module/list; do
   render "$p" || fail "$p answered 404"
 done
 # /admin/module/list is the module manager; it names every installed module.
