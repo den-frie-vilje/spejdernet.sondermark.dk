@@ -21,8 +21,8 @@ BODY=$(mktemp)
 finish() {
   status=$?
   if [ "$status" -ne 0 ]; then
-    echo "--- response body"
-    sed -e 's/<[^>]*>//g' "$BODY" | grep -v '^[[:space:]]*$' | head -40
+    echo "--- last response, error lines"
+    sed -e 's/<[^>]*>//g' "$BODY" | grep -iE 'error|exception' | head -20 || true
     echo "--- humhub container log, last 100 lines"
     compose logs --no-color --tail 100 humhub || true
   fi
@@ -65,12 +65,13 @@ echo "3/4 installing and enabling the modules in deploy/modules.txt"
 VERSION=$(compose exec -T humhub cat /usr/src/humhub/.version | tr -d 'v[:space:]')
 MODULES=$(grep -vE '^[[:space:]]*(#|$)' deploy/modules.txt)
 INSTALLED=""
+MISSING=""
 for m in $MODULES; do
   INFO=$(curl -sS --max-time 60 "https://api.humhub.com/v1/modules/info?id=$m&version=$VERSION&installId=test")
   case "$INFO" in
     *'"isPaid":true'*) echo "  paid $m downloads only with the licence; not installed in the test"; continue ;;
     *'"latestCompatibleVersion":{'*) ;;
-    *) fail "the marketplace has no release of $m for HumHub $VERSION" ;;
+    *) echo "  NONE $m has no release for HumHub $VERSION"; MISSING="$MISSING $m"; continue ;;
   esac
   for action in install enable; do
     code=$(page "$URL/marketplace/browse/$action" --data-urlencode "_csrf=$CSRF" --data-urlencode "moduleId=$m")
@@ -116,4 +117,6 @@ done
 ERRORS=$(compose exec -T humhub sh -c 'cat protected/runtime/logs/app.log 2>/dev/null' | grep -E '\[error\]' || true)
 [ -z "$ERRORS" ] || { echo "$ERRORS"; fail "errors in protected/runtime/logs/app.log"; }
 
+# Reported last so one run shows everything else as well.
+[ -z "$MISSING" ] || fail "the marketplace has no release for HumHub $VERSION of:$MISSING"
 echo "PASS: $(echo "$INSTALLED" | wc -w | tr -d ' ') modules installed, enabled and rendering"
