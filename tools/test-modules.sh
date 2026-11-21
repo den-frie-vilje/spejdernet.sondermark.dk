@@ -12,7 +12,7 @@ cd "$(dirname "$0")/.."
 compose() { docker compose -f deploy/compose.test.yml "$@"; }
 # The console runs as the web user so the files it writes stay writable for
 # the web application.
-yii() { compose exec -T -u nginx humhub php yii "$@"; }
+yii() { compose exec -T -u nginx -w /var/www/localhost/htdocs/protected humhub php yii "$@"; }
 
 URL=http://127.0.0.1:18080
 JAR=$(mktemp)
