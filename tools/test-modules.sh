@@ -58,17 +58,30 @@ echo "3/4 installing and enabling the modules in deploy/modules.txt"
 # Through the marketplace pages rather than the console: the console
 # installer runs without third-party modules loaded, and a module whose
 # requirements.php looks one up (external_calendar needs calendar) fails there.
+# The marketplace is asked first, as HumHub asks it (HumHubApiClient sends
+# the core version): a paid module downloads only with the licence production
+# holds, so it is reported and left out; a module without a release for this
+# core is the failure this test exists for.
+VERSION=$(compose exec -T humhub cat /usr/src/humhub/.version | tr -d 'v[:space:]')
 MODULES=$(grep -vE '^[[:space:]]*(#|$)' deploy/modules.txt)
+INSTALLED=""
 for m in $MODULES; do
+  INFO=$(curl -sS --max-time 60 "https://api.humhub.com/v1/modules/info?id=$m&version=$VERSION&installId=test")
+  case "$INFO" in
+    *'"isPaid":true'*) echo "  paid $m downloads only with the licence; not installed in the test"; continue ;;
+    *'"latestCompatibleVersion":{'*) ;;
+    *) fail "the marketplace has no release of $m for HumHub $VERSION" ;;
+  esac
   for action in install enable; do
     code=$(page "$URL/marketplace/browse/$action" --data-urlencode "_csrf=$CSRF" --data-urlencode "moduleId=$m")
     [ "$code" = 200 ] || fail "$action of $m answered $code"
   done
   echo "  $m installed and enabled"
+  INSTALLED="$INSTALLED $m"
 done
 LIST=$(yii module/list)
 echo "$LIST"
-for m in $MODULES; do
+for m in $INSTALLED; do
   echo "$LIST" | grep -qE "^  $m +enabled " || fail "$m is not enabled"
 done
 # The marketplace serves releases per core version; every module must be at
@@ -92,10 +105,10 @@ for p in /dashboard /directory/members /admin/module/list; do
   render "$p" || fail "$p answered 404"
 done
 # /admin/module/list is the module manager; it names every installed module.
-for m in $MODULES; do
+for m in $INSTALLED; do
   grep -q "moduleId=$m\b" "$BODY" || fail "the module manager does not list $m"
 done
-for m in $MODULES; do
+for m in $INSTALLED; do
   for p in /$m/admin /$m/config /$m/global /$m/index; do
     render "$p" && break
   done || echo "  none $m has no page of its own"
@@ -103,4 +116,4 @@ done
 ERRORS=$(compose exec -T humhub sh -c 'cat protected/runtime/logs/app.log 2>/dev/null' | grep -E '\[error\]' || true)
 [ -z "$ERRORS" ] || { echo "$ERRORS"; fail "errors in protected/runtime/logs/app.log"; }
 
-echo "PASS: $(echo "$MODULES" | wc -w | tr -d ' ') modules installed, enabled and rendering"
+echo "PASS: $(echo "$INSTALLED" | wc -w | tr -d ' ') modules installed, enabled and rendering"
