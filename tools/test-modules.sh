@@ -135,34 +135,32 @@ echo "5/5 running the unit and functional tests the modules ship"
 # root (tests/config/common.php); the env file it merges last
 # (tests/codeception/config/config.php) points it at the db service. The
 # steps are those of humhub/module-coding-standards
-# .github/workflows/codeception-base.yml: migrate, installer/auto, codecept
-# build, then each module's suites. A module is enabled in the test database
-# first, since migrate/up only covers enabled modules
-# (humhub/commands/MigrateController.php). Acceptance suites drive Chrome
+# .github/workflows/codeception-base.yml, which tests one module on a fresh
+# database: migrate, installer/auto, codecept build, then the module's suites
+# in the order codecept runs them, functional before unit. Each module gets
+# that fresh database here too, so nothing a suite leaves behind reaches the
+# next module, and is enabled in it first, since migrate/up only covers
+# enabled modules (humhub/commands/MigrateController.php). Acceptance suites drive Chrome
 # through Selenium and are left out. The module code is never touched: a
 # failing suite is the module's state on this core, and the daily run tries
 # the next release until it passes.
 compose exec -T humhub apk add --no-cache -q composer php85-tokenizer
 compose exec -T -u nginx -w /var/www/localhost/htdocs humhub composer install --no-interaction --no-progress --quiet
-compose exec -T db mariadb -uroot -proot -e 'CREATE DATABASE humhub_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
 compose exec -T humhub sh -c 'cat > /var/www/localhost/htdocs/protected/humhub/tests/config/env/env.php' <<'PHP'
 <?php
 return ['components' => ['db' => ['dsn' => 'mysql:host=db;dbname=humhub_test', 'username' => 'root', 'password' => 'root']]];
 PHP
 harness() { compose exec -T -u nginx -w /var/www/localhost/htdocs/protected/humhub/tests/codeception/bin humhub php yii "$@"; }
-harness migrate/up --includeModuleMigrations=1 --interactive=0 | tail -1
-harness installer/auto | tail -1
+fresh_test_database() {
+  compose exec -T db mariadb -uroot -proot -e 'DROP DATABASE IF EXISTS humhub_test; CREATE DATABASE humhub_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
+  harness migrate/up --includeModuleMigrations=1 --interactive=0 > /dev/null
+  harness installer/auto > /dev/null
+  harness cache/flush-all > /dev/null
+}
 compose exec -T -u nginx -w /var/www/localhost/htdocs/protected/humhub/tests humhub php ../../vendor/bin/codecept build --no-interaction | tail -1
 FAILED=""
 # Runs one suite and prints its cell for the table.
 suite() {
-  # A suite unloads its fixtures when it ends and leaves the setting table
-  # empty, and the installed state is a setting row (InstallationState::setState),
-  # read once when the suite's application boots; without it the suite gets
-  # the installer page. The installer commands cannot write it again (the
-  # admin and the profile fields exist), so the row is put back directly.
-  compose exec -T db mariadb -uroot -proot humhub_test -e "INSERT IGNORE INTO setting (module_id, name, value) VALUES ('base', 'humhub\\\\components\\\\InstallationState', '3')"
-  harness cache/flush-all > /dev/null
   out=$(compose exec -T -u nginx -w "/var/www/localhost/htdocs/protected/modules/$1/tests" humhub php /var/www/localhost/htdocs/protected/vendor/bin/codecept run "$2" --no-interaction --no-colors 2>&1) || true
   case "$out" in
     *"No tests executed"*|*"could not be found"*) echo "none"; return ;;
@@ -181,8 +179,9 @@ for m in $INSTALLED; do
   if compose exec -T humhub test -f "/var/www/localhost/htdocs/protected/modules/$m/tests/codeception.yml"; then
     # The module is enabled through the console as HumHub's own module/install
     # would; a module that breaks there shows it in its suites.
+    fresh_test_database
     harness module/enable "$m" 2>&1 | tail -3
-    u=$(suite "$m" unit); f=$(suite "$m" functional)
+    f=$(suite "$m" functional); u=$(suite "$m" unit)
     echo "  $m unit: $u; functional: $f"
     case "$u$f" in *FAIL*) FAILED="$FAILED $m" ;; esac
     row "$m" "$(version "$m")" yes "$u" "$f"
