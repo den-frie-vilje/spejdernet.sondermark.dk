@@ -18,7 +18,9 @@ name: Check for updates
 
 on:
   schedule:
-    - cron: '20 4 * * *'
+    # 05:20 UTC: the image fork looks for a HumHub release at 02:00 UTC and
+    # its build publishes well within the hours between.
+    - cron: '20 5 * * *'
   workflow_dispatch:
 
 permissions:
