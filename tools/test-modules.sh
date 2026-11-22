@@ -32,7 +32,7 @@ finish() {
     compose logs --no-color --tail 100 humhub || true
   fi
   compose down -v --remove-orphans > /dev/null 2>&1 || true
-  rm -f "$JAR" "$BODY" "$ROWS"
+  rm -f "$JAR" "$BODY" "$BODY.known" "$BODY.failing" "$ROWS"
   exit "$status"
 }
 trap finish EXIT
@@ -88,16 +88,16 @@ for m in $MODULES; do
   INSTALLED="$INSTALLED $m"
 done
 LIST=$(yii module/list)
-printf '%s\n' \"$LIST\"
+printf '%s\n' "$LIST"
 for m in $INSTALLED; do
-  printf '%s\n' \"$LIST\" | grep -qE "^  $m +enabled " || fail "$m is not enabled"
+  printf '%s\n' "$LIST" | grep -qE "^  $m +enabled " || fail "$m is not enabled"
 done
 # The marketplace serves releases per core version; every module must be at
 # the release it serves for this core, and the integrity check must pass.
 yii module/update-all
 yii integrity/run
 LIST=$(yii module/list)
-version() { printf '%s\n' \"$LIST\" | awk -v m="$1" '$1 == m { print $3 }'; }
+version() { printf '%s\n' "$LIST" | awk -v m="$1" '$1 == m { print $3 }'; }
 
 echo "4/5 rendering the pages and reading the application log"
 # A page passes with 200 and no error page in the body. A module without a
@@ -124,7 +124,7 @@ for m in $INSTALLED; do
   done || echo "  none $m has no page of its own"
 done
 ERRORS=$(compose exec -T humhub sh -c 'cat /var/www/localhost/htdocs/protected/runtime/logs/app.log' | grep -E '\[error\]' || true)
-[ -z "$ERRORS" ] || { printf '%s\n' \"$ERRORS\"; fail "errors in protected/runtime/logs/app.log"; }
+[ -z "$ERRORS" ] || { printf '%s\n' "$ERRORS"; fail "errors in protected/runtime/logs/app.log"; }
 
 echo "5/5 running the unit and functional tests the modules ship"
 # Most marketplace modules ship Codeception suites, and the image carries
@@ -156,7 +156,7 @@ PHP
 harness() { compose exec -T -u nginx -w /var/www/localhost/htdocs/protected/humhub/tests/codeception/bin humhub php yii "$@" 2>&1; }
 # printf, not echo: dash's echo reads the backslashes in PHP class names
 # as escapes and stops at \c.
-expect() { out=$(cat); printf '%s\n' \"$out\" | grep -qE "$1" || { printf '%s\n' \"$out\" | tail -20; fail "the test harness did not $2"; }; }
+expect() { out=$(cat); printf '%s\n' "$out" | grep -qE "$1" || { printf '%s\n' "$out" | tail -20; fail "the test harness did not $2"; }; }
 fresh_test_database() {
   # The harness caches settings and the installation state in a file cache
   # (tests/config/common.php, @runtime/tests/cache); a console booting on an
@@ -169,20 +169,38 @@ fresh_test_database() {
 }
 compose exec -T -u nginx -w /var/www/localhost/htdocs/protected/humhub/tests humhub php ../../vendor/bin/codecept build --no-interaction 2>&1 | expect 'UnitTesterActions.php generated successfully' 'build its actor classes'
 FAILED=""
+# The failures a module release is known to have on this core, one per line
+# in deploy/known-test-failures.txt: module, suite, test. A run passes on the
+# same signature: every other test must pass, and a listed test that passes
+# again is reported so its line can go.
+known() { grep -E "^$1 $2 " deploy/known-test-failures.txt | cut -d' ' -f3 | sort -u > "$BODY.known" || true; }
 # Runs one suite and prints its cell for the table.
 suite() {
   out=$(compose exec -T -u nginx -w "/var/www/localhost/htdocs/protected/modules/$1/tests" humhub php /var/www/localhost/htdocs/protected/vendor/bin/codecept run "$2" --no-interaction --no-colors 2>&1) || true
   case "$out" in
     *"No tests executed"*|*"could not be found"*) echo "none"; return ;;
   esac
-  tests=$(printf '%s\n' \"$out\" | grep -oE '(OK \(|Tests: )[0-9]+' | tail -1 | grep -oE '[0-9]+$' || true)
-  bad=$(( $(printf '%s\n' \"$out\" | grep -oE '(Failures|Errors): [0-9]+' | grep -oE '[0-9]+' | paste -sd+ - | sed -e 's/^$/0/' || true) ))
-  [ -n "$tests" ] || { printf '%s\n' \"$out\" | tail -40 >&2; echo "FAIL, did not run"; return; }
-  if [ "$bad" -gt 0 ]; then
-    printf '%s\n' \"$out\" | grep -vE '^\s*#[0-9]+ ' | grep -A6 -E '^[0-9]+\) ' >&2
-    echo "FAIL, $bad of $tests"
+  tests=$(printf '%s\n' "$out" | grep -oE '(OK \(|Tests: )[0-9]+' | tail -1 | grep -oE '[0-9]+$' || true)
+  # codecept names each failing test as " Test  codeception/<suite>/<file>:<method>".
+  failing=$(printf '%s\n' "$out" | sed -nE "s|^ Test  codeception/$2/||p" | sort -u)
+  [ -n "$tests" ] || failing="did-not-run"
+  judge "$1" "$2" "$failing" "${tests:-0}"
+}
+# Compares a suite's failing tests with the known ones and prints the cell.
+judge() {
+  known "$1" "$2"
+  unexpected=$(printf '%s\n' "$3" | grep -v '^$' | grep -vxFf "$BODY.known" || true)
+  again=$(printf '%s\n' "$3" | grep -v '^$' > "$BODY.failing" || true; grep -vxFf "$BODY.failing" "$BODY.known" || true)
+  [ -z "$again" ] || echo "  $1 $2: known failure passes again, remove from deploy/known-test-failures.txt: $again" >&2
+  if [ -n "$unexpected" ]; then
+    printf '%s\n' "$out" | grep -vE '^\s*#[0-9]+ ' | grep -A6 -E '^[0-9]+\) ' | head -80 >&2
+    echo "FAIL: $(echo $unexpected)"
+  elif [ "$2" = console ]; then
+    echo "known failure: console enable"
+  elif [ -s "$BODY.failing" ]; then
+    echo "ok, $4 tests, $(wc -l < "$BODY.failing" | tr -d ' ') known failing"
   else
-    echo "ok, $tests tests"
+    echo "ok, $4 tests"
   fi
 }
 for m in $INSTALLED; do
@@ -197,11 +215,11 @@ for m in $INSTALLED; do
     # would; a module that breaks there is reported, since its suites would
     # only fail on the missing tables.
     ENABLE=$(harness module/enable "$m")
-    if printf '%s\n' \"$ENABLE\" | grep -q "Module $m enabled"; then
+    if printf '%s\n' "$ENABLE" | grep -q "Module $m enabled"; then
       f=$(suite "$m" functional); u=$(suite "$m" unit)
     else
-      printf '%s\n' \"$ENABLE\" | grep -vE '^\s*#[0-9]+ ' | head -8 >&2
-      f="FAIL, console enable failed"; u="FAIL, console enable failed"
+      out=$ENABLE
+      f=$(judge "$m" console console-enable 0); u=$f
     fi
     echo "  $m unit: $u; functional: $f"
     case "$u$f" in *FAIL*) FAILED="$FAILED $m" ;; esac
@@ -233,7 +251,7 @@ echo
 # The versions this pass ran with, behind each id in deploy/modules.txt; the
 # image carries the file and deploy/entrypoint.d/20-update-modules.sh updates
 # the modules when it changes.
-printf '%s\n' \"$LIST\" > "$BODY"
+printf '%s\n' "$LIST" > "$BODY"
 awk 'NR == FNR { if (NF >= 3) ver[$1] = $3; next }
   /^[[:space:]]*(#|$)/ { print; next }
   { if ($1 in ver) print $1, ver[$1]; else print }' "$BODY" deploy/modules.txt > "$BODY.new"

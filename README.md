@@ -48,7 +48,8 @@ the dashboard, the directories, the module manager and each module's own
 page are rendered, and the unit and functional suites each module ships run
 against HumHub's own test harness on a second database. A module the
 marketplace has no release for on that core fails the check, as does a failing
-suite; a paid module downloads only with production's licence and is
+test that is not listed in `deploy/known-test-failures.txt`, which names
+the tests a module release is known to fail and why; a paid module downloads only with production's licence and is
 reported, not installed. The job summary is a table of how every module
 fared. `deploy/modules.txt` is production's module folder with the version
 each module last passed at: a module installed or removed in the admin
@@ -98,6 +99,7 @@ the new version answers.
 | `tools/test-modules.sh` | Installs the modules in `deploy/modules.txt` on a fresh HumHub built from the pull request, renders their pages and runs their unit and functional suites |
 | `tools/bump-humhub.sh` | Moves the Dockerfiles to the newest HumHub the image fork has built |
 | `deploy/modules.txt` | The marketplace modules production runs, one id per line with the version the test last passed at |
+| `deploy/known-test-failures.txt` | The tests a module release is known to fail on this core, with the reason; the test passes on exactly that signature |
 | `deploy/compose.test.yml` | The throwaway stack the module test runs on an empty database |
 | `tools/fix-collation.sh` | Converts the database default and every table to utf8mb4_unicode_ci, before HumHub migrates |
 | `.github/workflows/deploy-<env>.yml` | Checks the version bump, then builds and signs that environment's images when the Dockerfiles change |
