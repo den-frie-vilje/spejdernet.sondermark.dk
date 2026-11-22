@@ -10,8 +10,8 @@
 # version. The list is deploy/modules.txt with the versions
 # tools/test-modules.sh passed with, copied into the image by
 # deploy/Dockerfile.humhub; the copy applied last sits beside the
-# configuration. A module an administrator removed from the list stays on
-# disk until removed in the admin interface. A marketplace that cannot be
+# configuration. A line "-id" in the list removes that module, files and
+# tables; a module merely dropped from the list stays on disk. A marketplace that cannot be
 # reached leaves marker and list for the next start and does not stop the site.
 CONFIG=/var/www/localhost/htdocs/protected/config
 MARKER=$CONFIG/.modules-need-update
@@ -22,7 +22,11 @@ if [ ! -f "$MARKER" ] && cmp -s "$TESTED" "$APPLIED"; then
 fi
 cd /var/www/localhost/htdocs/protected
 ok=true
-for m in $(grep -vE '^[[:space:]]*(#|$)' "$TESTED" | cut -d' ' -f1); do
+for m in $(sed -nE 's/^-([a-z0-9_-]+).*/\1/p' "$TESTED"); do
+  [ -d "modules/$m" ] || continue
+  php yii module/remove "$m" || ok=false
+done
+for m in $(grep -vE '^[[:space:]]*(#|-|$)' "$TESTED" | cut -d' ' -f1); do
   [ -d "modules/$m" ] && continue
   php yii module/install "$m" && php yii module/enable "$m" || ok=false
 done
