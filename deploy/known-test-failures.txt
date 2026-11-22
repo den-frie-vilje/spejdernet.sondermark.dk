@@ -16,3 +16,7 @@ external_calendar console console-enable
 # DynamicFixtureHelper in functional.suite.yml) and passes upstream only
 # because the api suite runs before it and leaves the users behind.
 mail functional SendMailCest.php:testSendMail
+
+# rest 0.12.7 refuses to be enabled without URL rewriting ("Please enable URL
+# Rewriting"), which the test console does not have; it enables on the web.
+rest console console-enable

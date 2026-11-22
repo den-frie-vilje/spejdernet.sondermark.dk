@@ -176,6 +176,9 @@ FAILED=""
 known() { grep -E "^$1 $2 " deploy/known-test-failures.txt | cut -d' ' -f3 | sort -u > "$BODY.known" || true; }
 # Runs one suite and prints its cell for the table.
 suite() {
+  # A suite folder without a test file is no suite; codecept cannot even
+  # start some of them (lets-meet's empty functional folder).
+  [ -n "$(compose exec -T humhub find "/var/www/localhost/htdocs/protected/modules/$1/tests/codeception/$2" -name '*Cest.php' -o -name '*Test.php' 2>/dev/null | head -1)" ] || { echo "none"; return; }
   out=$(compose exec -T -u nginx -w "/var/www/localhost/htdocs/protected/modules/$1/tests" humhub php /var/www/localhost/htdocs/protected/vendor/bin/codecept run "$2" --no-interaction --no-colors 2>&1) || true
   case "$out" in
     *"No tests executed"*|*"could not be found"*) echo "none"; return ;;
