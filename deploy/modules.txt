@@ -27,6 +27,9 @@ meeting
 mostactiveusers
 newmembers
 online-users
+# onlyoffice has no release for HumHub 1.19; euro-office replaces it and takes
+# its connection settings over (Ole, 2026-11-21).
+-onlyoffice
 euro-office
 polls
 questions

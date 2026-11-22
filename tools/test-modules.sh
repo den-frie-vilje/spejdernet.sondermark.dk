@@ -70,7 +70,8 @@ echo "3/5 installing and enabling the modules in deploy/modules.txt"
 # holds, so it is reported and left out; a module without a release for this
 # core is the failure this test exists for.
 VERSION=$(compose exec -T humhub cat /usr/src/humhub/.version | tr -d 'v[:space:]')
-MODULES=$(grep -vE '^[[:space:]]*(#|$)' deploy/modules.txt | cut -d' ' -f1)
+# A line starting with - names a module the entrypoint removes; not installed here.
+MODULES=$(grep -vE '^[[:space:]]*(#|-|$)' deploy/modules.txt | cut -d' ' -f1)
 INSTALLED=""
 MISSING=""
 for m in $MODULES; do
@@ -256,7 +257,7 @@ echo
 # the modules when it changes.
 printf '%s\n' "$LIST" > "$BODY"
 awk 'NR == FNR { if (NF >= 3) ver[$1] = $3; next }
-  /^[[:space:]]*(#|$)/ { print; next }
+  /^[[:space:]]*(#|-|$)/ { print; next }
   { if ($1 in ver) print $1, ver[$1]; else print }' "$BODY" deploy/modules.txt > "$BODY.new"
 cat "$BODY.new" > deploy/modules.txt
 rm -f "$BODY.new"
