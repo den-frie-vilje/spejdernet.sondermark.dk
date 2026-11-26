@@ -17,7 +17,7 @@ cfiles 0.19.3
 custom_pages 1.13.8
 dark-mode 2.3.0
 external_calendar 1.7.1
-fcm-push 2.3.2
+fcm-push 2.3.4
 gallery 1.9.1
 jitsi-meet 1.2.4
 legal 1.8.1
