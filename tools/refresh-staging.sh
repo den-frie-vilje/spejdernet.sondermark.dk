@@ -6,9 +6,16 @@
 #
 # Any images given are run as a migration ladder (deploy/ladder.yml) between
 # the copy and the start of staging's own version. A running production is
-# dumped with a single transaction; a production that is not running (before
-# the first cutover) has its database files copied as they are.
+# dumped with a single transaction; a production that is not running has its
+# database files copied as they are.
+# Staging comes up on the image the agent last verified and pulled; the script
+# pulls nothing itself, since the agent's signature check is the only gate an
+# image passes on its way onto the NAS. A rebuild the agent has not fetched yet
+# is swapped in on its next pass, one more restart without a migration.
 set -eu
+# Container Manager installs docker in /usr/local/bin, which sudo's secure_path
+# on DSM leaves out ("docker: command not found" under sudo, 2026-11-20).
+PATH=/usr/local/bin:$PATH
 
 DOMAIN=spejdernet.sondermark.dk
 ROOT=/volume1/docker/$DOMAIN
@@ -20,6 +27,15 @@ read_var() { grep -E "^$2=" "$1" | cut -d= -f2- | tr -d '"'; }
 P_DATA=$(read_var "$P_ENV" DATA_DIR)
 S_DATA=$(read_var "$S_ENV" DATA_DIR)
 [ -n "$P_DATA" ] && [ -n "$S_DATA" ] && [ "$P_DATA" != "$S_DATA" ] || { echo "DATA_DIR missing or identical in $P_ENV and $S_ENV" >&2; exit 1; }
+# Keep the agent away while the copy is half done: it starts any stack whose
+# sites.d file exists and whose containers are down, and a half-copied
+# staging would run with production's mail settings.
+SITES_D=/volume1/docker/nas-sites/sites.d
+AGENT_FILE=$SITES_D/$DOMAIN.staging.env
+if [ -f "$AGENT_FILE" ]; then
+  mv "$AGENT_FILE" "$AGENT_FILE.refreshing"
+  trap 'mv "$AGENT_FILE.refreshing" "$AGENT_FILE"' EXIT
+fi
 prod() { docker compose -p spejdernet-sondermark-dk-production -f "$REPO/deploy/compose.production.yml" --env-file "$P_ENV" "$@"; }
 stage() { docker compose -p spejdernet-sondermark-dk-staging -f "$REPO/deploy/compose.staging.yml" --env-file "$S_ENV" "$@"; }
 
@@ -39,12 +55,13 @@ fi
 
 echo "3/6 copying files (uploads, config, modules, themes, assets)"
 mkdir -p "$S_DATA/humhub"
-rsync -a --delete "$P_DATA/humhub/" "$S_DATA/humhub/"
+rsync -a --delete --exclude=@eaDir --exclude="#recycle" "$P_DATA/humhub/" "$S_DATA/humhub/"
 
 if [ -n "$AT_REST" ]; then
   echo "4/6 copying the database files"
-  rsync -a --delete "$P_DATA/db/data/" "$S_DATA/db/data/"
+  rsync -a --delete --exclude=@eaDir --exclude="#recycle" "$P_DATA/db/data/" "$S_DATA/db/data/"
   stage up -d --wait db
+  "$REPO/tools/fix-collation.sh" staging
 else
   echo "4/6 recreating the staging database from the dump"
   rm -rf "$S_DATA/db/data"
@@ -52,11 +69,18 @@ else
   stage up -d --wait db
   stage exec -T db sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" humhub' < "$S_DATA/db/production.sql"
   rm -f "$S_DATA/db/production.sql"
+  # The copied dynamic.php names production's root password, and this fresh
+  # server has staging's; HumHub shows the installer on an access-denied answer
+  # (InstallationState::isDatabaseInstalled, 1.19.4), so the credentials are
+  # rewritten from the container's own environment before anything starts.
+  # Past the entrypoint, which would migrate with the old password first.
+  stage run --rm --entrypoint sh humhub -c 'cd /var/www/localhost/htdocs/protected && php yii installer/write-db-config "$HUMHUB_DB_HOST" "$HUMHUB_DB_NAME" "$HUMHUB_DB_USER" "$HUMHUB_DB_PASSWORD"'
+  "$REPO/tools/fix-collation.sh" staging
 fi
 
 for IMG in "$@"; do
   echo "5/6 migrating through $IMG, then updating the marketplace modules to that core"
-  LADDER_IMAGE="$IMG" stage -f "$REPO/deploy/ladder.yml" run --rm humhub php yii marketplace/update-all
+  LADDER_IMAGE="$IMG" stage -f "$REPO/deploy/ladder.yml" run --rm humhub php yii module/update-all
 done
 
 echo "6/6 neutralising the copy: mail to the catcher, push module removed, staging base URL, modules updated"
@@ -68,8 +92,8 @@ stage run --rm humhub sh -c "
   php yii settings/set base mailerPassword '' &&
   php yii settings/set base mailerEncryption '' &&
   php yii settings/set base baseUrl $STAGE_HOST &&
-  (php yii marketplace/remove fcm-push || true) &&
-  php yii marketplace/update-all &&
-  php yii cache/flush"
+  ( [ ! -d /var/www/localhost/htdocs/protected/modules/fcm-push ] || php yii module/remove fcm-push ) &&
+  php yii module/update-all &&
+  php yii cache/flush-all"
 stage up -d --wait
 echo "staging is up on $STAGE_HOST"

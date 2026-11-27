@@ -24,14 +24,60 @@ builds `production-latest`. An upgrade is:
    migrations on the copied data.
 2. Rehearse on staging: log in, read Administration, Information, update the
    marketplace modules, send a test mail and read it in the catcher.
-3. In a service window, back production up, then merge `staging` into `main`.
-   The merge is the deploy: the agent pulls within a few minutes and the
-   migrations run against production.
+3. Merge `staging` into `main` in a service window. The merge is the deploy:
+   the agent pulls within a few minutes, the image dumps the database
+   (`deploy/pre-start.sh`), the migrations run against production, and the
+   marketplace modules are updated to their releases for the new core
+   (`deploy/entrypoint.d/20-update-modules.sh`).
 
-Rollback is the backup: stop the stack, restore the database directory and
-the config directory from the backup, revert the merge so `production-latest`
-moves back, and let the agent start it. Nothing shortens the window itself;
-the data is frozen from the backup to the moment the new version answers.
+Every push of the Dockerfiles is checked before anything is built
+(`tools/check-version.sh`): both files at one version, the digests as GHCR
+serves them for that tag, the image's own version file matching, and no
+minor version skipped, which HumHub advises against. Dependabot opens patch
+bumps as one pull request for both files. A fix in the base image's
+packages, PHP included, needs no version bump: rerun the environment's
+deploy workflow by hand (Actions, Run workflow), the build's `apk upgrade`
+takes the current packages, and the agent pulls the new image.
+
+Every pull request to `staging` runs `tools/test-modules.sh`: the two images
+are built from the pull request, HumHub is installed on an empty
+database (`deploy/compose.test.yml`), the test administrator signs in and
+installs and enables every module in `deploy/modules.txt` through the
+marketplace, the marketplace update check and the integrity check run, and
+the dashboard, the directories, the module manager and each module's own
+page are rendered, and the unit and functional suites each module ships run
+against HumHub's own test harness on a second database. A module the
+marketplace has no release for on that core fails the check, as does a failing
+test that is not listed in `deploy/known-test-failures.txt`, which names
+the tests a module release is known to fail and why; a paid module downloads only with production's licence and is
+reported, not installed. The job summary is a table of how every module
+fared. `deploy/modules.txt` is production's module folder with the version
+each module last passed at: a module installed or removed in the admin
+interface is added or removed there too, and the versions are written by the
+test. What the entrypoint installs is the marketplace's current release for
+the core at that start, which is the tested version unless the module was
+released again since; the next daily run tests that release.
+
+Every day `.github/workflows/update-check.yml` moves the Dockerfiles to the
+newest HumHub the image fork has built (`tools/bump-humhub.sh`), runs the same
+test against it and the module releases the marketplace serves, and only when
+every module passes and something is new brings the tree to `staging` through
+a pull request, builds the staging images and opens or refreshes the pull
+request to `main`, with the table in its description and the owner as
+reviewer. `staging` takes pull requests only, each with a passing `test`
+status (the repository ruleset), so a failing test cannot reach it by any
+route. Staging then runs the new core or
+modules within minutes (the image carries `deploy/modules.txt`, and
+`deploy/entrypoint.d/20-update-modules.sh` updates the modules when it
+changes); the review on staging is by hand, and the merge builds production.
+A failing test fails the daily run, which GitHub reports, and nothing moves
+until a release passes. GitHub runs schedules from the default branch, so the
+daily check fires once the workflow is on `main`; it checks out `staging`
+either way.
+
+Rollback is the dump: see "Rollback" under the service window. Nothing
+shortens the window itself; the data is frozen from the dump to the moment
+the new version answers.
 
 ## Layout
 
@@ -42,16 +88,41 @@ the data is frozen from the backup to the moment the new version answers.
 | `deploy/compose.staging.yml` | The same stack plus the mail catcher |
 | `deploy/<env>.env.example` | Template for the env file on the NAS |
 | `deploy/nas-sites/spejdernet.sondermark.dk.<env>.env` | The agent's config for that environment, on record |
+| `deploy/entrypoint.d/10-common-config.sh` | Regenerates `common.php` from the image's factory and `common.site.php` on every start |
+| `deploy/common.site.php` | The site's own PHP configuration, merged over the generated `common.php` |
+| `deploy/humhub.<env>.env` | HumHub's own `.env`: scalar configuration and pinned settings per environment |
 | `deploy/ladder.yml` | Override for running an intermediate version's migrations without deploying it |
-| `tools/copy-from-legacy.sh` | One-off copy of the site that runs today into the canonical layout |
 | `tools/refresh-staging.sh` | Copies production's data to staging and neutralises it |
-| `.github/workflows/deploy-<env>.yml` | Builds and signs that environment's images when the Dockerfiles change |
+| `deploy/pre-start.sh` | The image's entrypoint: dumps the database before an upgrade migrates it |
+| `deploy/entrypoint.d/20-update-modules.sh` | Installs the modules the image's list names and updates them all, after a core upgrade has migrated and when the list changes |
+| `tools/check-version.sh` | The version-bump check the workflows run before building |
+| `tools/test-modules.sh` | Installs the modules in `deploy/modules.txt` on a fresh HumHub built from the pull request, renders their pages and runs their unit and functional suites |
+| `tools/bump-humhub.sh` | Moves the Dockerfiles to the newest HumHub the image fork has built |
+| `deploy/modules.txt` | The marketplace modules production runs, one id per line with the version the test last passed at |
+| `deploy/known-test-failures.txt` | The tests a module release is known to fail on this core, with the reason; the test passes on exactly that signature |
+| `deploy/compose.test.yml` | The throwaway stack the module test runs on an empty database |
+| `tools/fix-collation.sh` | Converts the database default and every table to utf8mb4_unicode_ci, before HumHub migrates |
+| `.github/workflows/deploy-<env>.yml` | Checks the version bump, then builds and signs that environment's images when the Dockerfiles change |
+| `.github/workflows/check-version.yml` | The same check on a pull request |
+| `.github/workflows/test-modules.yml` | The module test on a pull request |
+| `.github/workflows/update-check.yml` | The daily check for HumHub and module releases that updates staging and asks for the review |
 
-The images are the upstream `jeremyvies/humhub` images re-tagged under
-`ghcr.io/den-frie-vilje/spejdernet-humhub` and `spejdernet-nginx`. The agent only
-deploys a stack that contains at least one image signed by nas-sites' own
-workflow, which is what the re-tag provides. After the first build, make both
-GHCR packages public, or the NAS cannot pull them.
+The stacks mount the custom theme as a single folder, `humhub/themes/Sondermark`,
+not the whole `themes` folder: a whole-folder mount hides the stock theme that
+ships in the image, and HumHub 1.18 renames every custom theme folder it finds
+there on upgrade. The stock theme therefore always matches the core.
+
+The base images, `ghcr.io/den-frie-vilje/humhub-phponly` and `humhub-nginx`,
+are built by the organisation's fork of humhub-docker
+([den-frie-vilje/humhub-docker](https://github.com/den-frie-vilje/humhub-docker)):
+its `versions.txt` names the HumHub version and its Build workflow publishes
+both on every push to main. The upstream `jeremyvies/humhub` images stopped at
+1.19.0. The site images add the Alpine upgrade, the ImageMagick coders and
+`pre-start.sh` on top and are published as `spejdernet-humhub` and
+`spejdernet-nginx`. The agent only deploys a stack that contains at least one
+image signed by nas-sites' own workflow, which is what the site build provides.
+After the first build, make both GHCR packages public, or the NAS cannot pull
+them.
 
 ## One-time setup on the NAS
 
@@ -70,34 +141,26 @@ The operator runs these by hand; the agent has no write access to any of it.
    `localhost:<MAILCATCHER_PORT>`; reach it through an SSH tunnel or a vhost
    of its own.
 
-## Onboarding from the existing stack
+## Site configuration
 
-The site that runs today lives in `/volume1/docker/spejdernet_sondermark_dk` and keeps
-serving until the very end. Nothing here touches it. The new layout is filled
-from a copy, and the production domain moves over when the copy is proven.
+Three kinds of configuration, three places:
 
-1. Copy the data into production's canonical directory with
-   `tools/copy-from-legacy.sh`, which maps the old layout onto the new one.
-   Files are copied while the old site runs; the database directory only with
-   `--database`, after its container is stopped, since a running database
-   cannot be copied consistently. The copy only exists on disk; nothing is
-   started, and the old folders are never mounted by the new stacks:
+- **PHP configuration that only code can express**, such as the display-name
+  callback: `deploy/common.site.php`, merged over the generated `common.php`
+  on every start. `common.php` itself is regenerated from the image's factory
+  by `deploy/entrypoint.d/10-common-config.sh`, so hand edits to it are lost.
+- **Scalar configuration and pinned settings**: `deploy/humhub.<env>.env`,
+  HumHub's own `.env`, mounted into the web root. `HUMHUB_WEB_CONFIG__...`
+  and `HUMHUB_CONFIG__...` set configuration; `HUMHUB_FIXED_SETTINGS__<module>__<name>`
+  pins a database setting so that it wins over the setting table and is locked
+  in the admin interface. Staging pins its mailer to the catcher and its base
+  URL this way.
+- **Everything else is data** in the database and the data directory:
+  Appearance, module settings, profile fields, `dynamic.php` with the database
+  connection, `web.php` and `console.php`.
 
-   ```sh
-   cd /volume1/docker/spejdernet.sondermark.dk/repo
-   sudo tools/copy-from-legacy.sh
-   sudo /usr/local/bin/docker stop spejdernet_sondermark_dk-db-1 && sudo tools/copy-from-legacy.sh --database && sudo /usr/local/bin/docker start spejdernet_sondermark_dk-db-1
-   ```
-
-2. Refresh staging from that copy (`tools/refresh-staging.sh`), which copies
-   the database files as they are when production is not running, and
-   rehearse the upgrade there.
-3. **Do not start the production stack before the window.** Two stacks on the
-   same data send every digest and notification twice.
-
-The cutover is the service window below, with one extra step at the start:
-stop the old stack, and rerun `tools/copy-from-legacy.sh --database` so the
-copy carries everything written since. From then on the old directory is the rollback, until it is deleted.
+To add a customisation, decide which of the three it is, change the file on
+`staging`, and promote it with the next staging to main pull request.
 
 ## Refreshing staging
 
@@ -105,11 +168,15 @@ copy carries everything written since. From then on the old directory is the rol
 sudo /volume1/docker/spejdernet.sondermark.dk/repo/tools/refresh-staging.sh [intermediate phponly image ...]
 ```
 
-A running production is dumped in a single transaction and its files are
-copied with rsync; a production at rest has its database files copied. The
-copy is then migrated through any intermediate images given (see
-`deploy/ladder.yml`), with the marketplace modules updated to each core on
-the way, neutralised, and started. The first refresh copies everything; later ones copy the delta.
+That is the whole of it: run it whenever staging should test against today's
+data. A running production is dumped in a single transaction and its files
+are copied with rsync; a production at rest has its database files copied.
+The copy is neutralised and started; when staging's branch is a version ahead
+of production, the start migrates the copy, as the production deploy will. The
+first refresh copies everything; later ones copy the delta. Only a jump of
+more than one minor version needs intermediate images, which are run as a
+migration ladder (see `deploy/ladder.yml`) with the marketplace modules
+updated to each core on the way.
 
 ## Service window for production
 
@@ -117,43 +184,48 @@ the way, neutralised, and started. The first refresh copies everything; later on
    `.disabled` so the agent cannot start anything until you say so.
 2. Stop production: `docker compose -p spejdernet-sondermark-dk-production down`
    (from `/volume1/docker/spejdernet.sondermark.dk/repo` with the compose file and env file, as
-   the agent runs it). At the first cutover this is the old stack instead,
-   followed by the final copy from "Onboarding from the existing stack".
-3. Back up `db/data` and `humhub/config` under the data directory. On
-   Btrfs, `cp -a --reflink=always` is instant; otherwise rsync to a sibling
-   directory.
+   the agent runs it).
+3. Copy `humhub/config` under the data directory to a sibling directory.
+   The database needs no copy: the image dumps it into
+   `humhub/config/backups` before it migrates.
 4. If staging needed a ladder, run the same images against production with
    `deploy/ladder.yml` now, one after the other.
-5. Run the collation fix if Administration, Information still warns about it
-   (below).
-6. Merge `staging` into `main`, wait for the build, rename the `sites.d` file
+5. Merge `staging` into `main`, wait for the build, rename the `sites.d` file
    back, and run the agent: `sudo -u deploy /volume1/docker/nas-sites/deploy-agent.sh spejdernet.sondermark.dk production`.
-7. Log in, read Administration, Information, update the marketplace modules.
-8. At the first cutover: point the DSM reverse-proxy vhost of the production
-   domain at `localhost:<HUMHUB_PORT>` of the new stack.
+6. Log in, read Administration, Information, update the marketplace modules.
+
+### Rollback
+
+The dump in `humhub/config/backups` is named after the version it holds and
+the version that was about to migrate it. To go back: stop the stack, revert
+the merge on `main` and wait for the build, recreate the database from the
+dump, then let the agent start the old version again. The old image finds a
+newer version file, dumps once more, runs no migrations it does not know, and
+writes its own version file back.
+
+```sh
+cd /volume1/docker/spejdernet.sondermark.dk/repo
+PROD="docker compose -p spejdernet-sondermark-dk-production -f deploy/compose.production.yml --env-file /volume1/docker/spejdernet.sondermark.dk/production/production.env"
+sudo $PROD down
+sudo $PROD up -d --wait db
+zcat /volume1/docker/spejdernet.sondermark.dk/production/data/humhub/config/backups/humhub-OLD-before-NEW-*.sql.gz | sudo $PROD exec -T db sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "DROP DATABASE humhub; CREATE DATABASE humhub" && mysql -uroot -p"$MYSQL_ROOT_PASSWORD" humhub'
+sudo -u deploy /volume1/docker/nas-sites/deploy-agent.sh spejdernet.sondermark.dk production
+```
 
 ### Collation fix
 
-The database was created with MariaDB's old default collation, and tables
-created by modules inherited it. HumHub's own 2018 migration converted the
-core tables; this applies the same statements to the rest. Run it against the
-database before the new version starts:
-
-```sql
-ALTER DATABASE humhub CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-SET FOREIGN_KEY_CHECKS=0;
--- one line per table the information page lists, for example:
-ALTER TABLE custom_pages_page_setting CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-SET FOREIGN_KEY_CHECKS=1;
-SELECT table_name, table_collation FROM information_schema.tables
- WHERE table_schema='humhub' AND table_collation <> 'utf8mb4_unicode_ci';
-```
-
-The last query must come back empty. The compose files also set the server
-default to utf8mb4, so new tables no longer inherit the old collation.
+HumHub migrations create new tables with the database default, so the
+database default and every table are utf8mb4_unicode_ci, the collation HumHub
+recommends. `tools/fix-collation.sh` converts whatever is left and refuses to
+succeed while any table remains; the staging refresh runs it as soon as the
+copied database is up, so a table that slipped in with another collation is
+caught on staging, before the production deploy migrates it.
 
 ## Mail
 
-The mail transport is a HumHub setting stored in the database (Administration,
-Settings, Mailing), not something in this repository. Production's setting
-survives upgrades with the data; staging's is overwritten by every refresh.
+Both environments pin the mail transport in `deploy/humhub.<env>.env`:
+production to Google Workspace's SMTP relay for sondermark.dk as a DSN with
+the site's hostname as the EHLO name (the relay refuses HumHub's default
+greeting), staging to the mail catcher. A pinned setting wins over the setting table and is locked in
+Administration, Settings, Mailing; the sender address and name stay in the
+database with the data.

@@ -11,10 +11,15 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    # One pull request for both Dockerfiles: the version check refuses a
+    # humhub image and an nginx image at different versions.
+    groups:
+      humhub:
+        patterns: ["*den-frie-vilje/humhub-*"]
     ignore:
       # Minor and major HumHub versions are a rehearsed upgrade, not a bump;
       # see README.md. Patch releases are fine.
-      - dependency-name: jeremyvies/humhub
+      - dependency-name: "*den-frie-vilje/humhub-*"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
   - package-ecosystem: docker-compose
     directory: /deploy

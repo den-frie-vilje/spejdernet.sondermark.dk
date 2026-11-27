@@ -1,4 +1,24 @@
-# HumHub 1.18.6. Bump both Dockerfiles together; the branch decides the environment
+# HumHub 1.19.5. Bump both Dockerfiles together; the branch decides the environment
 # (staging builds from the staging branch, production from main).
-# The digest is the manifest-list digest Docker Hub shows for the tag.
-FROM docker.io/jeremyvies/humhub:1.18.6-phponly@sha256:a7a6bc1ecd6dcfe6ecab13b595e80ca34899d6dfd4fdd1efed820c7120fab935
+# The digest is the one GHCR shows for the tag, built by den-frie-vilje/humhub-docker.
+FROM ghcr.io/den-frie-vilje/humhub-phponly:1.19.5@sha256:b17dedb2b03480ec9b573455b0733e57ccdb7b940807d454c8489169bdc3580c
+# Alpine security updates at build time, so a PHP or nginx fix ships as soon as
+# Alpine has it, without waiting for the upstream image to be rebuilt. Re-run
+# the workflow by hand (workflow_dispatch) to pick up a new fix.
+RUN apk --no-cache upgrade
+# ImageMagick's HEIC/AVIF and WebP coders are separate Alpine packages that the
+# upstream image does not install, so iPhone photos got no previews.
+RUN apk --no-cache add imagemagick-heic imagemagick-webp
+# The database is dumped before every upgrade migration; see deploy/pre-start.sh.
+RUN apk --no-cache add mariadb-client
+# Alpine ships php-intl with icu-data-en, ICU's English locale data only, so
+# German and Danish dates were formatted in English (calendar's own tests
+# caught it); the full data set brings every locale.
+RUN apk --no-cache add icu-data-full
+# The modules the test last passed with, read by
+# deploy/entrypoint.d/20-update-modules.sh.
+COPY deploy/modules.txt /usr/local/share/humhub-modules.txt
+COPY --chmod=755 deploy/pre-start.sh /usr/local/bin/pre-start
+ENTRYPOINT ["/usr/local/bin/pre-start"]
+# ENTRYPOINT resets the image's CMD, so it is repeated from upstream.
+CMD ["supervisord", "-n", "-c", "/etc/supervisord.conf"]
