@@ -17,7 +17,7 @@ cfiles 0.19.3
 custom_pages 1.13.8
 dark-mode 2.3.0
 external_calendar 1.7.1
-fcm-push 2.3.4
+fcm-push 2.3.5
 gallery 1.9.1
 jitsi-meet 1.2.4
 legal 1.8.1
@@ -33,7 +33,7 @@ online-users 1.1.2
 euro-office 1.0.2
 polls 1.5.2
 questions 1.1.6
-rest 0.12.7
+rest 0.12.8
 sharebetween 1.2.1
 tasks 1.10.4
 wiki 2.6.5
